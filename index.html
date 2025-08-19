@@ -1,123 +1,68 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-import uvicorn
-import json
-import os
-import shutil
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProChat</title>
+<style>
+  body { font-family: Arial, sans-serif; margin:0; padding:0; background-color:#f0f0f0; }
+  header { background:#5865F2; color:white; padding:20px; text-align:center; }
+  main { display:flex; height:calc(100vh - 80px); }
+  #friends { width:250px; background:#2f3136; color:white; padding:10px; overflow:auto; }
+  #chat { flex:1; display:flex; flex-direction:column; background:#36393f; color:white; }
+  #messages { flex:1; padding:10px; overflow:auto; }
+  #newMessage { display:flex; }
+  #newMessage input { flex:1; padding:10px; border:none; outline:none; }
+  #newMessage button { padding:10px; background:#5865F2; border:none; color:white; cursor:pointer; }
+</style>
+</head>
+<body>
 
-app = FastAPI()
+<header>
+  <h1>ProChat Web</h1>
+</header>
 
-# CORS for website frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Change to your website domain in production
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+<main>
+  <div id="friends">
+    <h3>Friends</h3>
+    <ul id="friendList">
+      <li>TestUser1</li>
+      <li>TestUser2</li>
+    </ul>
+    <button onclick="addFriend()">Add Friend</button>
+  </div>
+  
+  <div id="chat">
+    <div id="messages"></div>
+    <div id="newMessage">
+      <input type="text" id="messageInput" placeholder="Type a message">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</main>
 
-DATA_FILE = "data.json"
+<script>
+let messagesDiv = document.getElementById("messages");
 
-# Load or initialize data
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, "r") as f:
-        data = json.load(f)
-else:
-    data = {"users": {}, "groups": {}, "messages": []}
+function sendMessage() {
+  let input = document.getElementById("messageInput");
+  if(input.value.trim() === "") return;
+  let msg = document.createElement("div");
+  msg.textContent = "You: " + input.value;
+  messagesDiv.appendChild(msg);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  input.value = "";
+}
 
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+function addFriend() {
+  let name = prompt("Enter friend's name:");
+  if(name) {
+    let li = document.createElement("li");
+    li.textContent = name;
+    document.getElementById("friendList").appendChild(li);
+  }
+}
+</script>
 
-class UserModel(BaseModel):
-    username: str
-    password: str
-
-class MessageModel(BaseModel):
-    sender: str
-    recipient: str  # user or group
-    content: str
-    group: Optional[bool] = False
-
-# ---------------- User Routes ----------------
-@app.post("/register")
-def register(user: UserModel):
-    if user.username in data["users"]:
-        raise HTTPException(status_code=400, detail="User exists")
-    data["users"][user.username] = {
-        "password": user.password,
-        "friends": [],
-        "profile_pic": None
-    }
-    save_data()
-    return {"msg": "Registered successfully"}
-
-@app.post("/login")
-def login(user: UserModel):
-    u = data["users"].get(user.username)
-    if not u or u["password"] != user.password:
-        raise HTTPException(status_code=400, detail="Invalid credentials")
-    return {"msg": "Login successful"}
-
-@app.post("/upload_profile_pic/{username}")
-def upload_profile_pic(username: str, file: UploadFile = File(...)):
-    if username not in data["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
-    path = f"profile_pics/{username}.png"
-    os.makedirs("profile_pics", exist_ok=True)
-    with open(path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    data["users"][username]["profile_pic"] = path
-    save_data()
-    return {"msg": "Profile picture uploaded"}
-
-# ---------------- Friend Routes ----------------
-@app.post("/add_friend")
-def add_friend(user: str, friend: str):
-    if friend not in data["users"] or user not in data["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
-    if friend not in data["users"][user]["friends"]:
-        data["users"][user]["friends"].append(friend)
-        data["users"][friend]["friends"].append(user)
-        save_data()
-    return {"msg": "Friend added"}
-
-# ---------------- Group Routes ----------------
-@app.post("/create_group")
-def create_group(name: str, members: List[str]):
-    if name in data["groups"]:
-        raise HTTPException(status_code=400, detail="Group exists")
-    data["groups"][name] = {
-        "members": members,
-        "profile_pic": None
-    }
-    save_data()
-    return {"msg": "Group created"}
-
-@app.post("/upload_group_pic/{group_name}")
-def upload_group_pic(group_name: str, file: UploadFile = File(...)):
-    if group_name not in data["groups"]:
-        raise HTTPException(status_code=404, detail="Group not found")
-    path = f"group_pics/{group_name}.png"
-    os.makedirs("group_pics", exist_ok=True)
-    with open(path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    data["groups"][group_name]["profile_pic"] = path
-    save_data()
-    return {"msg": "Group picture uploaded"}
-
-# ---------------- Messages ----------------
-@app.post("/send_message")
-def send_message(msg: MessageModel):
-    data["messages"].append(msg.dict())
-    save_data()
-    return {"msg": "Message sent"}
-
-@app.get("/get_messages/{user_or_group}")
-def get_messages(user_or_group: str):
-    msgs = [m for m in data["messages"] if m["recipient"] == user_or_group]
-    return {"messages": msgs}
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+</body>
+</html>
